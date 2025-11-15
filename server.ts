@@ -7,8 +7,24 @@ import { logRequest, getOrCreateSession, updateSessionCount, getRequests, getUni
 import { randomBytes } from 'crypto';
 import { extractShape, analyzeEndpointDiffs } from './diff/analyzer';
 
+// Parse command-line arguments
+function parseArgs() {
+    const args = process.argv.slice(2);
+    let targetPort = 3002; // default port
+
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--target' && args[i + 1]) {
+            targetPort = parseInt(args[i + 1], 10);
+            i++;
+        }
+    }
+
+    return { targetPort };
+}
+
+const { targetPort } = parseArgs();
 const PORT = 9000;
-const TARGET_URL = 'http://localhost:3002';
+const TARGET_URL = `http://localhost:${targetPort}`;
 
 // Session management
 const CURRENT_SESSION_ID = randomBytes(16).toString('hex');
