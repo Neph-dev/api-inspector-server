@@ -58,6 +58,7 @@ interface RequestMetadata {
     path: string;
     requestHeaders: Record<string, string | string[]>;
     requestBody: any;
+    graphqlOperation?: string; // GraphQL operation name if applicable
 }
 
 const requestMetadataMap = new Map<string, RequestMetadata>();
@@ -68,8 +69,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
     // Capture request body
     let requestBody = '';
+    let graphqlOperation: string | undefined;
+
     if (req.body) {
         requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+
+        // Extract GraphQL operation name if this is a GraphQL request
+        try {
+            const parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            if (parsedBody && parsedBody.operationName) {
+                graphqlOperation = parsedBody.operationName;
+            }
+        } catch (e) {
+            // Not a valid JSON body, skip GraphQL detection
+        }
     }
 
     const metadata: RequestMetadata = {
@@ -77,7 +90,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
         method: req.method,
         path: req.url,
         requestHeaders: req.headers as Record<string, string | string[]>,
-        requestBody
+        requestBody,
+        graphqlOperation
     };
 
     requestMetadataMap.set(requestId, metadata);
@@ -303,7 +317,10 @@ const proxyMiddleware = createProxyMiddleware({
             const metadata = requestMetadataMap.get(requestId);
 
             if (metadata) {
-                console.log(`[PROXY] ${metadata.method} ${metadata.path} -> ${TARGET_URL}${metadata.path}`);
+                const displayPath = metadata.graphqlOperation
+                    ? `${metadata.path} [${metadata.graphqlOperation}]`
+                    : metadata.path;
+                console.log(`[PROXY] ${metadata.method} ${displayPath} -> ${TARGET_URL}${metadata.path}`);
 
                 // If request has a body, write it to the proxy request
                 if (metadata.requestBody && metadata.requestBody.length > 0) {
@@ -320,7 +337,10 @@ const proxyMiddleware = createProxyMiddleware({
 
             if (metadata) {
                 const duration = Date.now() - metadata.startTime;
-                console.log(`[RESPONSE] ${metadata.method} ${metadata.path} - ${proxyRes.statusCode} - ${duration}ms`);
+                const displayPath = metadata.graphqlOperation
+                    ? `${metadata.path} [${metadata.graphqlOperation}]`
+                    : metadata.path;
+                console.log(`[RESPONSE] ${metadata.method} ${displayPath} - ${proxyRes.statusCode} - ${duration}ms`);
 
                 // Forward status code and headers to client
                 res.statusCode = proxyRes.statusCode || 200;
@@ -342,11 +362,15 @@ const proxyMiddleware = createProxyMiddleware({
                 proxyRes.on('end', () => {
                     const responseBody = Buffer.concat(chunks).toString('utf8');
 
-                    // Log to database
+                    // Log to database - use GraphQL operation name as path suffix for differentiation
+                    const effectivePath = metadata.graphqlOperation
+                        ? `${metadata.path}#${metadata.graphqlOperation}`
+                        : metadata.path;
+
                     logRequest({
                         sessionId: CURRENT_SESSION_ID,
                         method: metadata.method,
-                        path: metadata.path,
+                        path: effectivePath,
                         statusCode: proxyRes.statusCode,
                         durationMs: duration,
                         requestHeaders: metadata.requestHeaders,
@@ -381,13 +405,20 @@ const proxyMiddleware = createProxyMiddleware({
 
             if (metadata) {
                 const duration = Date.now() - metadata.startTime;
-                console.error(`[ERROR] ${metadata.method} ${metadata.path}: ${err.message} - ${duration}ms`);
+                const displayPath = metadata.graphqlOperation
+                    ? `${metadata.path} [${metadata.graphqlOperation}]`
+                    : metadata.path;
+                console.error(`[ERROR] ${metadata.method} ${displayPath}: ${err.message} - ${duration}ms`);
 
-                // Log error to database
+                // Log error to database - use GraphQL operation name as path suffix
+                const effectivePath = metadata.graphqlOperation
+                    ? `${metadata.path}#${metadata.graphqlOperation}`
+                    : metadata.path;
+
                 logRequest({
                     sessionId: CURRENT_SESSION_ID,
                     method: metadata.method,
-                    path: metadata.path,
+                    path: effectivePath,
                     durationMs: duration,
                     requestHeaders: metadata.requestHeaders,
                     requestBody: metadata.requestBody,
