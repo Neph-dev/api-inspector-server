@@ -3,14 +3,14 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import cors from 'cors';
 import { ServerResponse } from 'http';
 import './db/init';
-import { logRequest, getOrCreateSession, updateSessionCount, getRequests, getUniqueEndpoints, getEndpointRequests } from './logger';
+import { logRequest, getOrCreateSession, updateSessionCount, getRequests, getUniqueEndpoints, getEndpointRequests, clearDatabase } from './logger';
 import { randomBytes } from 'crypto';
 import { extractShape, analyzeEndpointDiffs } from './diff/analyzer';
 
 // Parse command-line arguments
 function parseArgs() {
     const args = process.argv.slice(2);
-    let targetPort = 3002; // default port
+    let targetPort = 50000; // default port
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--target' && args[i + 1]) {
@@ -23,8 +23,8 @@ function parseArgs() {
 }
 
 const { targetPort } = parseArgs();
-const PORT = 9000;
-const TARGET_URL = `http://localhost:${targetPort}`;
+const PORT = 50017;
+const TARGET_URL = `http://localhost:${targetPort}/graphql`;
 
 // Session management
 const CURRENT_SESSION_ID = randomBytes(16).toString('hex');
@@ -33,7 +33,20 @@ console.log(`[SESSION] Active session: ${CURRENT_SESSION_ID}`);
 
 const app = express();
 
-app.use(cors());
+// Configure CORS to allow requests from your frontend
+app.use(cors({
+    origin: [
+        'https://payment-local.test.cergea.com:4010',
+        'http://localhost:4010',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:4000',
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    exposedHeaders: ['Content-Length', 'X-Request-Id']
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.text({ limit: '10mb' }));
 app.use(express.raw({ limit: '10mb' }));
@@ -256,6 +269,24 @@ app.get('/api/stats/latency', (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: 'Failed to fetch latency statistics',
+            message: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// Clear database
+app.delete('/api/clear', (req: Request, res: Response) => {
+    try {
+        clearDatabase();
+        res.json({
+            success: true,
+            message: 'Database cleared successfully'
+        });
+    } catch (error) {
+        console.error('[API] Error clearing database:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to clear database',
             message: error instanceof Error ? error.message : 'Unknown error'
         });
     }

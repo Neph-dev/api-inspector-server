@@ -277,3 +277,17 @@ export function getEndpointRequests(method: string, path: string, limit: number 
         return [];
     }
 }
+
+/**
+ * Clear all requests and sessions from the database
+ */
+export function clearDatabase(): void {
+    try {
+        db.exec('DELETE FROM requests');
+        db.exec('DELETE FROM sessions');
+        console.log('[LOGGER] Database cleared successfully');
+    } catch (error) {
+        console.error('[LOGGER] Error clearing database:', error);
+        throw error;
+    }
+}
